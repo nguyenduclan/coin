@@ -1,0 +1,44 @@
+# Cổng chỉ bind 127.0.0.1; đặt WEB_PORT sau khi kiểm tra `ss -tlnp` trên VPS.
+services:
+  coin-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: coin
+      POSTGRES_USER: coin
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?đặt DB_PASSWORD}
+    volumes: [coin_pgdata:/var/lib/postgresql/data]
+    networks: [coin_net]
+    mem_limit: 384m
+    command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=20"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coin -d coin"]
+      interval: 10s
+      retries: 5
+
+  coin-api:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://coin:${DB_PASSWORD}@coin-db:5432/coin
+    depends_on:
+      coin-db: { condition: service_healthy }
+    networks: [coin_net]
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u;u.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+
+  coin-web:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on: [coin-api]
+    networks: [coin_net]
+    ports: ["127.0.0.1:${WEB_PORT:?đặt WEB_PORT}:3100"]
+    mem_limit: 256m
+
+networks:
+  coin_net:
+volumes:
+  coin_pgdata:
